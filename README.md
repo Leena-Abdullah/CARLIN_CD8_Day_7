@@ -1,0 +1,1 @@
+# Here we used CARLIN, a progressive lineage tracing mouse model with single-cell RNA- and TCR-sequencing to track endogenous OVA-specific CD8 T-cells responding to acute viral infection![image](https://github.com/Leena-Abdullah/CARLIN_CD8_Day_7/assets/95719967/94b4506b-3fef-4f50-9575-555daa277403)
