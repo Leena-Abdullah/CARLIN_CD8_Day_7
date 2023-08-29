@@ -1,0 +1,400 @@
+---
+title: "Figure 1 Code"
+output: html_notebook
+---
+
+
+```{r}
+##to load object again
+##mcv=readRDS('mcv_fig1.rds')
+
+##loading all the libraries needed
+library(Seurat)
+library(SeuratWrappers)
+library(SeuratDisk)
+library(dplyr) 
+library(ggplot2)
+library(clustree)
+library(jackstraw)
+```
+
+```{r}
+#loading data
+LA1.data <- Read10X(data.dir = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/filtered_feature_bc_matrix_LA1")
+LA2.data <- Read10X(data.dir = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/filtered_feature_bc_matrix_LA2")
+LA3.data <- Read10X(data.dir = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/filtered_feature_bc_matrix_LA3")
+
+#create Seurat object
+LA1 <- CreateSeuratObject(counts = LA1.data, project = "CARLIN", min.cells = 3, min.features = 200)
+LA2 <- CreateSeuratObject(counts = LA2.data, project = "CARLIN", min.cells = 3, min.features = 200)
+LA3 <- CreateSeuratObject(counts = LA3.data, project = "CARLIN", min.cells = 3, min.features = 200)
+```
+
+```{r}
+##determine %mt to get rid of dead cells in the samples
+LA1[["percent.mt"]] <- PercentageFeatureSet(object = LA1, pattern = "^mt-")
+LA2[["percent.mt"]] <- PercentageFeatureSet(object = LA2, pattern = "^mt-")
+LA3[["percent.mt"]] <- PercentageFeatureSet(object = LA3, pattern = "^mt-")
+```
+
+```{r}
+#merge CARLIN samples
+#add information to identify dataset of origin
+seurats=c(LA1, LA2, LA3)
+seurats[[1]]$dataset <- 'LA1'
+seurats[[2]]$dataset <- 'LA2'
+seurats[[3]]$dataset <- 'LA3'
+
+mcv=merge(
+  x= seurats[[1]], y= list(seurats[[2]], seurats[[3]]),
+  add.cell.ids = c("LA1", "LA2","LA3"),
+  merge.data = TRUE,
+  project = "CARLINMERGED"
+)
+```
+
+```{r}
+##perform QC
+plot1 <- FeatureScatter(mcv, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(mcv, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+VlnPlot(mcv, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+plot1+plot2
+mcv <- subset(mcv, subset = nFeature_RNA > 1000 & nFeature_RNA < 6000 & percent.mt < 7)
+```
+
+```{r}
+#Perform log-normalization and feature selection
+mcv <- mcv %>%
+    NormalizeData() %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>% 
+    ScaleData()
+```
+
+
+```{r}
+##run PCA
+mcv <- RunPCA(mcv)
+
+DimPlot(mcv, reduction = "pca")
+DimPlot(mcv, reduction = "pca", group.by = 'dataset')
+Idents(mcv)<-mcv$dataset
+DimPlot(object = mcv, reduction = "pca",split.by = "dataset",ncol = 2)
+
+
+ElbowPlot(mcv, ndims=50)
+mcv <- JackStraw(mcv, num.replicate = 100)
+mcv <- ScoreJackStraw(mcv, dims = 1:20)
+JackStrawPlot(mcv, dims = 1:20)
+
+#First 15 PC look good
+```
+
+```{r}
+##run harmony to remove slight batch differences
+library(harmony)
+
+mcv <- mcv %>% 
+    RunHarmony("dataset", plot_convergence = TRUE)
+
+DimPlot(object = mcv, reduction = "harmony", pt.size = .1, group.by = "dataset")
+```
+
+```{r}
+mcv <- FindNeighbors(mcv, reduction='harmony', dims = 1:15)
+#mcv<- FindClusters(mcv, resolution = c(0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7))
+#use clustree to find resolution with stable clusters
+#clustree(mcv, prefix = "RNA_snn_res.")
+
+#run umap for dimension reduction using top 15 PCs and 0.25 resolution
+mcv<- FindClusters(mcv, resolution = c(0.25))
+mcv <- RunUMAP(mcv, reduction='harmony', dims = 1:15)
+DimPlot(mcv, reduction = "umap")
+
+#View clusters and samples on the umap
+Idents(mcv)<-mcv$seurat_clusters
+plot1<-DimPlot(mcv,reduction = "umap", label = FALSE)
+Idents(mcv)<-mcv$dataset
+plot2<-DimPlot(mcv,reduction = "umap", label = FALSE)
+
+##save object here
+saveRDS(mcv, "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/mcv_fig1.rds")
+```
+
+```{r}
+Idents(mcv)<-mcv$seurat_clusters
+
+##looking at DEGs
+cluster.markers.0=FindMarkers(mcv, ident.1 = "0", ident.2 =NULL)
+write.csv(cluster.markers.0, file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/cluster.markers.0.csv", quote=F,row.names = T, col.names = T)
+
+cluster.markers.1=FindMarkers(mcv, ident.1 = "1", ident.2 =NULL)
+write.csv(cluster.markers.1, file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/cluster.markers.1.csv", quote=F,row.names = T, col.names = T)
+
+cluster.markers.2=FindMarkers(mcv, ident.1 = "2", ident.2 =NULL)
+write.csv(cluster.markers.2, file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/cluster.markers.2.csv", quote=F,row.names = T, col.names = T)
+
+cluster.markers.3=FindMarkers(mcv, ident.1 = "3", ident.2 =NULL)
+write.csv(cluster.markers.3, file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/cluster.markers.3.csv", quote=F,row.names = T, col.names = T)
+
+cluster.markers.4=FindMarkers(mcv, ident.1 = "4", ident.2 =NULL)
+write.csv(cluster.markers.4, file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/cluster.markers.4.csv", quote=F,row.names = T, col.names = T)
+
+cluster.markers.5=FindMarkers(mcv, ident.1 = "5", ident.2 =NULL)
+write.csv(cluster.markers.5, file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/cluster.markers.5.csv", quote=F,row.names = T, col.names = T)
+
+cluster.markers.6=FindMarkers(mcv, ident.1 = "6", ident.2 =NULL)
+write.csv(cluster.markers.6, file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/cluster.markers.6.csv", quote=F,row.names = T, col.names = T)
+```
+
+```{r}
+##reordering levels 
+my_levels<-c("5","0", "6","2","3", "4","1" )
+levels(mcv) <- my_levels
+
+##making figures to highlight DEGs
+pdf(file="dotplot_DEGs.pdf", width=5, height = 9)
+DotPlot(mcv, features = c("Sell","Ccr7", "Lef1","Bcl2","Tcf7", "Gpr183","Ltb", "Cxcr3","Il7r","Slamf6","Isg15", "Ifit1", "Bst2", "Stat1", "Irf7",'Oas3' ,"Lgals3", "Vim",'S100a4','Anxa2', "Birc5", "Cdk1", "Stmn1", "Mki67", "Top2a","Lgals1","Gzmb","Gzma", "Prf1", "Zeb2","Klrg1", "Klre1", "Cx3cr1"))+scale_colour_gradient2(low = "blue", mid= "light grey",high = "red")+coord_flip()+theme(axis.text.x = element_text(angle=45, hjust=1))
+dev.off()  
+
+##umap to view seurat clusters
+my_levels<-c("0",'1','2','3', '4','5','6' )
+levels(mcv) <- my_levels
+pdf(file="umap_cluster.pdf", width=9, height = 5)
+DimPlot(mcv, reduction = 'umap')
+dev.off()
+```
+
+```{r}
+##looking at DEGs for fgsea. Code to make GSEA figure provided by Akshaya Balasubramanian from Sundrud lab at Dartmouth College
+
+dir='~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/GSEA/'
+
+clusters <- c(0:6)
+for(i in 1:length(clusters)){
+  cluster.markers=FindMarkers(mcv, ident.1 = as.character(clusters[i]), ident.2 =NULL,logfc.threshold = 0)
+  cluster.markers[['group']]=clusters[i]
+  write.csv(cluster.markers, file=paste0(dir,"cluster.markers.GSEA_",as.character(clusters[i]),".csv"), quote=F,row.names = T, col.names = T)
+}
+
+C0<-read.csv(paste0(dir,"cluster.markers.GSEA_0.csv"))
+
+C1<-read.csv(paste0(dir,"cluster.markers.GSEA_1.csv"))
+
+C2<-read.csv(paste0(dir,"cluster.markers.GSEA_2.csv"))
+
+C3<-read.csv(paste0(dir,"cluster.markers.GSEA_3.csv"))
+
+C4<-read.csv(paste0(dir,"cluster.markers.GSEA_4.csv"))
+
+C5<-read.csv(paste0(dir,"cluster.markers.GSEA_5.csv"))
+
+C6<-read.csv(paste0(dir,"cluster.markers.GSEA_6.csv"))
+
+
+all_markers=rbind(C0,C1,C2,C3,C4,C5,C6)
+
+library(fgsea)
+library(tibble)
+library(RColorBrewer)
+
+
+dat <- all_markers
+
+#Read in the best et al gene sets as lists
+hd_gene_sets <- read.csv(paste0(dir, "best_2013_ordered.csv"), na.strings = '')
+gene_sets_1 <- NULL
+for (i in seq_along(colnames(hd_gene_sets))) {gene_sets_1[i] <- as.list(na.omit(hd_gene_sets[i]))
+}
+names(gene_sets_1) <- colnames(hd_gene_sets)
+
+##get rid of duplicate names in the gene_set
+names_gs=names(gene_sets_1)
+
+for (i in (1:length(gene_sets_1))){
+  gene_sets_1[[i]]<-gene_sets_1[[i]][!duplicated(gene_sets_1[[i]])]
+}
+
+#Select genes in each cluster and rank them by log2FC.
+#Parameter on which GSEA run was avglog2FC
+#group is the cluster
+
+GSEA_my_function <- function(x){
+  y <- as.character(x)
+  cluster.genes <- dat %>%
+  dplyr::filter(group == x) %>%
+  arrange(desc(avg_log2FC)) %>% 
+  dplyr::select(X, avg_log2FC)
+  ranks<- deframe(cluster.genes)
+  head(ranks)
+  fgseaRes<- fgseaMultilevel(pathways=gene_sets_1, stats = ranks)
+  fgseaResTidy <- fgseaRes 
+  fgseaResTidy$leadingEdge <- as.character(fgseaResTidy$leadingEdge)
+  write.csv(fgseaResTidy, paste0(dir, "GSEA_Result_Best_2013_", y, ".csv"))
+  }
+
+clusters <- as.list(0:6)
+lapply(clusters, GSEA_my_function)
+
+##combine the NES values for the different clusters and change the order of the rows representing Best clusters
+C0<-read.csv(paste0(dir,"GSEA_Result_Best_2013_0.csv"))
+C0[['cluster']]='B-MP'
+
+
+C1<-read.csv(paste0(dir,"GSEA_Result_Best_2013_1.csv"))
+C1[['cluster']]='G-TE'
+
+
+C2<-read.csv(paste0(dir,"GSEA_Result_Best_2013_2.csv"))
+C2[['cluster']]='F-IE'
+
+
+C3<-read.csv(paste0(dir,"GSEA_Result_Best_2013_3.csv"))
+C3[['cluster']]='D-EE'
+
+
+C4<-read.csv(paste0(dir,"GSEA_Result_Best_2013_4.csv"))
+C4[['cluster']]='E-CE'
+
+
+C5<-read.csv(paste0(dir,"GSEA_Result_Best_2013_5.csv"))
+C5[['cluster']]='A-N'
+
+
+C6<-read.csv(paste0(dir,"GSEA_Result_Best_2013_6.csv"))
+C6[['cluster']]='C-IF'
+
+
+all_Best=rbind(C5,C0,C6,C2,C3,C4,C1)
+all_Best[['neg_log_pval']]=-log10(all_Best$padj)
+
+##plot NES and p-value
+p <- ggplot(all_Best, aes(y = cluster, x = pathway, fill = NES, size= neg_log_pval))+
+
+  geom_point(color='black',
+
+            lwd = 0.1,
+
+            linetype = 1)+
+
+  coord_fixed()+
+
+  scale_size(range = c(0,9))+
+  
+  geom_point(aes(color = NES)) +
+  scale_colour_gradient2(low = "blue", mid= "light grey",high = "red")+
+
+  theme_minimal()+
+
+  scale_x_discrete(position = "bottom") +
+
+  scale_y_discrete(position = "left") +
+
+  ylab('Cluster ID')+
+
+  xlab('Gene sets from Best')+
+
+  theme(legend.direction = "vertical", legend.position = 'right', legend.box = "horizontal")+
+
+  guides(guide_legend(order = 1))+
+
+  theme(axis.text.x=element_text(angle = 0, hjust = 0)) +
+
+  theme(axis.title.x = element_text(size = 12, face = 'bold', colour = "black")) +
+
+  theme(axis.title.y = element_text(size = 12, face = 'bold', colour = "black"))+
+
+  theme(axis.text.y = element_text(size = 9, face = "bold", color = "black", )) +
+
+  theme(axis.text.x = element_text(size = 9, face = "bold", color = "black")) +
+
+  theme(legend.title = element_text(size = 10, face = 'bold'), legend.text = element_text(size = 10))+
+  theme(axis.line = element_line(colour = "black"))+
+  
+  theme( axis.ticks = element_line(colour = "black"))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+
+  labs(size = '-log10(padj)', fill = 'NES')
+
+pdf(file="GSEA_Best.pdf", width=6, height = 3.5)
+p+coord_flip()
+dev.off()
+
+
+```
+
+
+```{r}
+##making individual feature plots
+pdf(file="Feature_plot_tcf7.pdf", width=6, height = 3.5)
+FeaturePlot(mcv, features = 'Tcf7', cols = c('lightgrey', "red"))+ NoAxes()
+dev.off()
+
+pdf(file="Feature_plot_Il7r.pdf", width=6, height = 3.5)
+FeaturePlot(mcv, features = 'Il7r', cols = c('lightgrey', "red"))+ NoAxes()
+dev.off()
+
+pdf(file="Feature_plot_Klrg1.pdf", width=6, height = 3.5)
+FeaturePlot(mcv, features = 'Klrg1', cols = c('lightgrey', "red"))+ NoAxes()
+dev.off()
+
+pdf(file="Feature_plot_Gzma.pdf", width=6, height = 3.5)
+FeaturePlot(mcv, features = 'Gzma', cols = c('lightgrey', "red"))+ NoAxes()
+dev.off()
+
+pdf(file="Feature_plot_Mki67.pdf", width=6, height = 3.5)
+FeaturePlot(mcv, features = 'Mki67', cols = c('lightgrey', "red"))+ NoAxes()
+dev.off()
+```
+
+
+```{r}
+#Supplementary figure 1
+#visualize what each cluster is made up of after harmony 
+
+library(ggplot2)
+cluster_var <- 'seurat_clusters'
+clusters <- unique(mcv@meta.data[[cluster_var]])
+clusters <- clusters[order(clusters)]
+df <- data.frame()
+for(i in 1:length(clusters)){
+  cur_df <- as.data.frame(mcv@meta.data %>% subset(seurat_clusters == clusters[i]) %>% .$dataset %>% table() /
+  table(mcv$dataset))
+  cur_df$Freq <- cur_df$Freq * 1/(sum(cur_df$Freq))
+  cur_df$cluster <- clusters[i]
+  df <- rbind(df, cur_df)
+  print(i)
+}
+
+pdf(file="proportion.pdf", width=4, height = 2)
+ggplot(df, aes(y=Freq, x=cluster, fill=.)) +
+  geom_bar(stat='identity') +
+  scale_y_continuous(expand = c(0,0)) +
+  ylab('normalized proportion') +
+  theme_minimal()+
+  theme(
+    panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),
+    axis.text.x = element_text(angle=45, hjust=1),
+    axis.title.x = element_blank(),
+    legend.title = element_blank(),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black")
+  )
+dev.off()
+
+
+##cell cycle analysis
+library(gprofiler2)
+mmus_s = gorth(cc.genes.updated.2019$s.genes, source_organism = "hsapiens", target_organism = "mmusculus")$ortholog_name
+mmus_g2m = gorth(cc.genes.updated.2019$g2m.genes, source_organism = "hsapiens", target_organism = "mmusculus")$ortholog_name
+
+
+mcv <- CellCycleScoring(mcv, s.features = mmus_s, g2m.features = mmus_g2m)
+
+pdf(file="umap_cluster_cellcycle_phase.pdf", width=9, height = 5)
+DimPlot(mcv,
+        reduction = "umap",
+        group.by= "Phase", cols=c('lightsteelblue4', 'purple', 'orange'))+ NoAxes()
+dev.off()
+
+```
