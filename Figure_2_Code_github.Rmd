@@ -1,0 +1,963 @@
+---
+title: "Figure 3 and 4"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+##loading libraries needed
+library(Seurat)
+library(SeuratWrappers)
+library(SeuratDisk)
+library(dplyr) 
+library(ggplot2)
+library(magrittr)
+```
+
+```{r}
+##loading data
+##tcr-metadata has the TCR information as well
+tcr_metadata=readRDS('~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/mcv_meta_071723.RDS')
+
+mcv=readRDS('/Users/leenaabdullah/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 1/mcv_fig1.rds') 
+
+rownames(tcr_metadata)=tcr_metadata$barcode
+tcr_metadata[is.na(tcr_metadata)] = "NA"
+
+colnames(tcr_metadata)[colnames(tcr_metadata) == "dataset.x"] ="dataset"
+
+mcv@meta.data<-tcr_metadata
+
+
+##divide the object into individual objects
+mcv_LA1=subset(x=mcv, subset = dataset == "LA1")
+mcv_LA2=subset(x=mcv, subset = dataset == "LA2")
+mcv_LA3=subset(x=mcv, subset = dataset == "LA3")
+```
+
+```{r}
+##make pie chart for the cdr3 sequences captured
+lab<-c("NA", "CDR3a only", "CDR3b only", "CDR3a & CDR3b")
+percent_comp<-c(length(which(mcv_LA3@meta.data$cdr3_aa_TRB=='NA' & mcv_LA3@meta.data$cdr3_aa_TRA=='NA' & mcv_LA3@meta.data$paired_tra_trb=='NA')), length(which(mcv_LA3@meta.data$cdr3_aa_TRB=='NA' & mcv_LA3@meta.data$cdr3_aa_TRA!='NA' & mcv_LA3@meta.data$paired_tra_trb=='NA' )), length(which(mcv_LA3@meta.data$cdr3_aa_TRB!='NA' & mcv_LA3@meta.data$cdr3_aa_TRA=='NA' & mcv_LA3@meta.data$paired_tra_trb=='NA' )), length(which(mcv_LA3@meta.data$cdr3_aa_TRB!='NA' & mcv_LA3@meta.data$cdr3_aa_TRA!='NA' & mcv_LA3@meta.data$paired_tra_trb!='NA' )))
+
+percent_comp<-percent_comp/nrow(mcv_LA3@meta.data)*100
+percent_comp<-round(as.numeric(percent_comp),1)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA3_chain_piechart.pdf", width=6, height =6)
+pie(percent_comp, col =col_vector[9:13], labels = percent_comp)
+legend("topright", c("NA", "CDR3a only", "CDR3b only", "CDR3a & CDR3b"), fill = col_vector[9:13])
+ dev.off() 
+ 
+ 
+##clonal composition of top 20 clones. Supplementary figure 3
+clonal_comp <- as.data.frame(table(mcv_LA2@meta.data$paired_tra_trb))
+clonal_comp<-clonal_comp %>% filter(clonal_comp$Var1!='NA') 
+clonal_comp<-clonal_comp[order(clonal_comp$Freq, decreasing = TRUE), ]  
+clonal_comp<-clonal_comp[1:20,]
+
+##make piechart for top clones in each mouse.  Supplementary figure 3
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+piepercent<- round(100*clonal_comp$Freq/sum(clonal_comp$Freq), 1)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA3_TOP20trab_proportions.pdf", width=6, height =6)
+pie(clonal_comp$Freq, labels = piepercent, col = col_vector)
+dev.off()
+```
+
+```{r}
+##fig 2
+##see clonal overlap between samples
+##CONDITION IN PLACE. CLONE=N of 2 or greater
+library(ggvenn)
+
+mcv_LA1_INT=subset(x=mcv_LA1, subset = cdr3_aa_TRB != "NA")
+mcv_LA2_INT=subset(x=mcv_LA2, subset = cdr3_aa_TRB != "NA")
+mcv_LA3_INT=subset(x=mcv_LA3, subset = cdr3_aa_TRB != "NA")
+
+table1<-as.data.frame(table(mcv_LA1_INT$cdr3_aa_TRA))
+table1<-table1 %>% filter(table1$Freq>1) 
+
+table2<-as.data.frame(table(mcv_LA2_INT$cdr3_aa_TRA))
+table2<-table2 %>% filter(table2$Freq>1)
+
+table3<-as.data.frame(table(mcv_LA3_INT$cdr3_aa_TRA))
+table3<-table3 %>% filter(table3$Freq>1)
+
+x = list('LA1'=table1$Var1, 'LA2'=table2$Var1,'LA3'= table3$Var1)
+
+pdf(file='~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/cdr3_aa_TRB_venn_diagram.pdf', width=3, height =3)
+ggvenn(x, show_percentage=FALSE, fill_color=col_vector[1:3], fill_alpha=0.8, text_size = 4)
+dev.off()
+```
+
+
+```{r}
+##make alluvial plot to show VJ usage in the top20 clones per sample
+library("ggalluvial")
+
+LA1_col<-c("#7FC97F","#1B9E77" , "#BEAED4" , "cyan" , "#386CB0" ,  "#D95F02",  "#666666")
+LA2_col<-c("#7FC97F","#BEAED4" ,  "#FDC086", "cyan", "#7570B3", "#666666"  )
+LA3_col<-c("#7FC97F", "#1B9E77", "#BEAED4", "#FDC086", "#386CB0", "#F0027F" ,  "#7570B3", "#66A61E",  "#666666")
+
+
+##making dataframe for the alluvial plot to look at top20 clones VJ usage
+clonal_comp <- as.data.frame(table(mcv_LA3@meta.data$paired_tra_trb))
+clonal_comp<-clonal_comp %>% filter(clonal_comp$Var1!='NA') 
+clonal_comp<-clonal_comp[order(clonal_comp$Freq, decreasing = TRUE), ]  
+clonal_comp<-clonal_comp[1:20,]
+ 
+##following code will give VJ usage for the top 20 clones
+dummy<-c()
+dummy_max<-c()
+count<-data.frame(matrix(nrow = 0, ncol = 5))
+colnames(count)<-c("Var1","Var2","Var3", "Var4","Freq") 
+for (i in 1:20){
+  dummy<-as.data.frame(table(mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRB, mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRB, mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRA, mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRA))
+  dummy_max<-dummy[which.max(dummy$Freq),]
+  row.names(dummy_max)<-i
+  count<-rbind(count, dummy_max)
+}
+
+count$Freq<-clonal_comp$Freq
+count$Freq<-clonal_comp$Freq/sum(clonal_comp$Freq)
+
+count<-count[order(count$Freq, decreasing = TRUE), ] 
+
+#make alluvial pots wihtout taking into account the size of the clones
+count$Freq<-1
+##stripping count dataframe of unnecessary info
+count$Var1<-gsub("TRBV","",as.character(count$Var1))
+count$Var2<-gsub("TRBJ","",as.character(count$Var2))
+count$Var3<-gsub("TRAV","",as.character(count$Var3))
+count$Var4<-gsub("TRAJ","",as.character(count$Var4))
+
+pdf(file='~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/alluvial_LA3_top20.pdf', width=8.5, height = 3)
+ggplot(data = count[1:20,],
+       aes(axis1 = Var1,axis2=Var2,axis3=Var3,axis4=Var4, y = Freq)) +
+  geom_alluvium(aes(fill = Var1), aes.bind = "flows") +
+  geom_stratum(alpha = 1, color = "black") +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum)), size=2) +
+scale_fill_manual(values=LA3_col)+
+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())+ theme(legend.position = "none")+scale_x_continuous(breaks = 1:4, labels = c("Vb", "Jb","Va", "Ja"), expand=c(0.5, 0)) 
+dev.off()
+```
+
+
+```{r}
+##calculating Enrichment Score (ES) to see whether the unique TCR clones are more enriched in one cluster vs the other.
+mcv_LA1_metadata<-mcv_LA1@meta.data
+mcv_LA2_metadata<-mcv_LA2@meta.data
+mcv_LA3_metadata<-mcv_LA3@meta.data
+
+unique_CDR3B=unique(mcv_LA3_metadata$paired_tra_trb)
+unique_CDR3B=unique_CDR3B[-which(unique_CDR3B=="NA")]
+
+
+##lets find cdr3A_b usage for all the cell IDs in filtered unique_CDR3B
+list_clones=list()
+list_clones_cellID=list()
+freq_clones=list()
+list_clones_cluster=list()
+for (i in 1:length(unique_CDR3B)) {
+  list_clones[[i]]=which(mcv_LA3$paired_tra_trb == unique_CDR3B[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3)[list_clones[[i]]]
+  freq_clones[[i]]=length(list_clones_cellID[[i]])
+  list_clones_cluster[[i]]=mcv_LA3$seurat_clusters[list_clones_cellID[[i]]]
+}
+
+##clones.df will hold the cluster distribution for all the unique cdr3a_b clones per sample
+clones.df=data.frame(matrix(0, ncol = length(unique(mcv_LA3$seurat_clusters)), nrow = length(unique_CDR3B)))
+rownames(clones.df) <- unique_CDR3B
+colnames(clones.df) <- c("0", "1", "2", "3","4","5", "6")
+
+for (i in 1:nrow(clones.df)){
+  {
+  for (j in 1:ncol(clones.df))
+    clones.df[i,j]=length(list_clones_cluster[[i]][list_clones_cluster[[i]] == colnames(clones.df)[j]])
+  }
+}
+
+#sum will store the total members of each clone
+clones.df[['sum']]=0
+for (i in 1:nrow(clones.df)){
+  clones.df[['sum']][i]=sum(clones.df[i,])
+}
+
+#add clonal identity to the dataframe and arrange them in decreasing order by size
+clones.df$clone <- rownames(clones.df)
+clones.df<-clones.df[order(-clones.df$sum),]
+
+##proportion of cells in each cluster per sample. Note we only consider the cells for which TCR data is available for ES analysis.
+mcv_LA3_TCR=subset(x=mcv_LA3, subset = paired_tra_trb != "NA")
+table_clusters=as.data.frame(table(mcv_LA3_TCR$seurat_clusters))
+sum_cells=sum(table_clusters$Freq)
+table_clusters[['propotion']]=(table_clusters$Freq)/sum_cells
+
+##now lets make an ES dataframe
+clones_ES=clones.df
+clones_ES=clones_ES[,-c(9)]
+clones_ES<-clones_ES[order(-clones_ES$sum),]
+
+##calculating the proportion of each cluster in the unique tcr clones
+for (i in 1:nrow(clones_ES)){
+  clones_ES[i,1:length(unique(mcv_LA3$seurat_clusters))]=(clones_ES[i,1:length(unique(mcv_LA3$seurat_clusters))]/clones_ES$sum[i])
+}
+
+##making sure that the proportions calculated above add to 1
+clones_ES[['sum_prop']]=0
+
+for (i in 1:nrow(clones_ES)){
+  clones_ES[['sum_prop']][i]=sum(clones_ES[i,1:length(unique(mcv_LA3$seurat_clusters))])
+}
+
+for (i in 1:nrow(clones_ES)){
+  clones_ES[['n']][i]=i
+}
+
+##now divide each column by proportion of total T cells that belong to the corresponding cluster to get the ES
+for (i in 1:length(unique(mcv_LA3$seurat_clusters))){
+  clones_ES[,i]=clones_ES[,i]/table_clusters$propotion[i]
+}
+
+##see what ES for 0-MP looks like vs 1-TE for each TCR clone. 
+for (i in 1:nrow(clones_ES)){
+  clones_ES[['mem/term']][i]=clones_ES$`0`[i]/clones_ES$`1`[i]
+}
+
+##get a sense of the sum of ES per clone
+for (i in 1:nrow(clones_ES)){
+  clones_ES[['sum_ES']][i]=sum(clones_ES[i,1:length(unique(mcv_LA3$seurat_clusters))])
+}
+
+##saving LA3 clone.df and clones_ES
+write.csv(clones.df, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA3 TCR clones/LA3_clone_distribution.csv",sep = ",",col.names = T, row.names=T)
+write.csv(clones_ES, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA3 TCR clones/LA3_clone_ES_score.csv",sep = ",",col.names = T, row.names=T)
+```
+
+
+```{r}
+##TCR ES analysis
+##read all the enrichment scores
+LA1_ES<-read.csv2('~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA1 TCR clones/LA1_clone_ES_score.csv', sep = ',')
+
+LA2_ES<-read.csv2('~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA2 TCR clones/LA2_clone_ES_score.csv', sep = ',')
+
+LA3_ES<-read.csv2('~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA3 TCR clones/LA3_clone_ES_score.csv', sep = ',')
+
+
+##filter the ones with high n
+LA1_ES<-LA1_ES %>% filter(LA1_ES$sum>=10)
+LA2_ES<-LA2_ES %>% filter(LA2_ES$sum>=20)
+LA3_ES<-LA3_ES %>% filter(LA3_ES$sum>=20)
+
+##use following code to get individual alpha and beta chains
+LA1_ES[['Clone']]<-LA1_ES[['X']]
+LA2_ES[['Clone']]<-LA2_ES[['X']]
+LA3_ES[['Clone']]<-LA3_ES[['X']]
+
+LA1_ES <- LA1_ES %>% separate(X, c('CDR3A', 'CDR3B'))
+LA2_ES <- LA2_ES %>% separate(X, c('CDR3A', 'CDR3B'))
+LA3_ES <- LA3_ES %>% separate(X, c('CDR3A', 'CDR3B'))
+
+
+LA2_ES_M=LA2_ES %>% filter(LA2_ES$X0>1 & LA2_ES$X1<1 & LA2_ES$mem.term>=2)
+LA2_ES_E=LA2_ES %>% filter(LA2_ES$X0<1 & LA2_ES$X1>1 & LA2_ES$mem.term<=0.5)
+
+##STORE THE REMAINING CLONES in the unbiased category AND SEE THEIR DISTRIBUTION. Replace LA2 with LA2/LA2
+LA2_ES_U <- LA2_ES[!(LA2_ES$Clone %in% LA2_ES_M$Clone),]
+LA2_ES_U <- LA2_ES_U[!(LA2_ES_U$Clone %in% LA2_ES_E$Clone),]
+
+
+
+##notes some ES clones are not in the right cluster LA2_U (n=25) and LA3_U (n=27)
+##code specific for LA3
+LA3_ES_M<-rbind(LA3_ES_M,LA3_ES_U[which(LA3_ES_U$n==27),])
+LA3_ES_U<-LA3_ES_U[-which(LA3_ES_U$n==27),]
+LA3_ES_M<-rbind(LA3_ES_M,LA3_ES_U[which(LA3_ES_U$n==6),])
+LA3_ES_U<-LA3_ES_U[-which(LA3_ES_U$n==6),]
+LA3_ES_U<-LA3_ES_U[order(LA3_ES_U$sum, decreasing = TRUE), ]  
+LA3_ES_M<-LA3_ES_M[order(LA3_ES_M$sum, decreasing = TRUE), ] 
+
+##code specific for LA2
+LA2_ES_M<-rbind(LA2_ES_M,LA2_ES_U[which(LA2_ES_U$n==25),])
+LA2_ES_U<-LA2_ES_U[-which(LA2_ES_U$n==25),]
+LA2_ES_U<-LA2_ES_U[order(LA2_ES_U$sum, decreasing = TRUE), ] 
+
+
+LA2_ES_E[['Identity']]='LA2'
+LA2_ES_M[['Identity']]='LA2'
+LA2_ES_U[['Identity']]='LA2'
+
+write.csv(LA2_ES_M, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA2 TCR clones/LA2_ES_M.csv",sep = ",",col.names = T)
+write.csv(LA2_ES_E, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA2 TCR clones/LA2_ES_E.csv",sep = ",",col.names = T)
+write.csv(LA2_ES_U, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/only LA2 TCR clones/LA2_ES_U.csv",sep = ",",col.names = T)
+
+##will combine E, M and U clones from each mouse into a single dataframe while preserving sample identity.
+
+
+LA_ES_M=rbind(LA1_ES_M,LA2_ES_M,LA3_ES_M)
+LA_ES_E=rbind(LA1_ES_E,LA2_ES_E,LA3_ES_E)
+LA_ES_U=rbind(LA1_ES_U,LA2_ES_U,LA3_ES_U)
+
+list_clones=list()
+list_clones_cellID=list()
+
+#UMAP of all the cells in each biased category
+for (i in 1:length(LA_ES_U$Clone)) {
+  if (LA_ES_U$Identity[i]=='LA1'){
+  list_clones[[i]]=which(mcv_LA1$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA1)[list_clones[[i]]]
+  
+  }
+  else if (LA_ES_U$Identity[i]=='LA2'){
+  list_clones[[i]]=which(mcv_LA2$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA2)[list_clones[[i]]]
+  
+  }
+  else if(LA_ES_U$Identity[i]=='LA3'){
+    list_clones[[i]]=which(mcv_LA3$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3)[list_clones[[i]]]
+ 
+  }
+}
+unlist_clones_cellID=unlist(list_clones_cellID)
+
+plotM<-DimPlot(mcv, reduction = 'umap', cells=unlist_clones_cellID)+ NoAxes()
+plotE<-DimPlot(mcv, reduction = 'umap', cells=unlist_clones_cellID)+ NoAxes()
+plotU<-DimPlot(mcv, reduction = 'umap', cells=unlist_clones_cellID)+ NoAxes()
+
+pdf(file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/biased_clones_umap.pdf", width = 16, height = 3)
+plotM+plotE+plotU
+dev.off()
+```
+
+
+```{r}
+##alluvial plots for the biased clones
+library("ggalluvial")
+
+
+##making dataframe for the alluvial plot to look at the BIASED clones VJ usage
+clonal_comp <- data.frame(LA_ES_U$Clone, LA_ES_U$sum, LA_ES_U$Identity, LA_ES_U$mem.term, LA_ES_U$Clone)
+colnames(clonal_comp) <- c('Var1','Freq', 'Identity', 'mem.term', 'Clone')
+
+ 
+
+dummy<-c()
+dummy_max<-c()
+count<-data.frame(matrix(nrow = 0, ncol = 6))
+colnames(count)<-c("Var1","Var2","Var3", "Var4","Var5", "Freq") 
+
+##make sure the VJ usage is calculated in sample specific manner. Important for when the same clone is present in multiple mice.
+for (i in 1:length(clonal_comp$Freq)){
+  if(clonal_comp$Identity[i]=='LA1'){
+  dummy<-as.data.frame(table(mcv_LA1@meta.data[(which(mcv_LA1@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRB, mcv_LA1@meta.data[(which(mcv_LA1@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRB, mcv_LA1@meta.data[(which(mcv_LA1@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRA, mcv_LA1@meta.data[(which(mcv_LA1@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRA, mcv_LA1@meta.data[(which(mcv_LA1@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$dataset))
+  dummy_max<-dummy[which.max(dummy$Freq),]
+  row.names(dummy_max)<-i
+  count<-rbind(count, dummy_max)
+  }
+  
+  else if (clonal_comp$Identity[i]=='LA2'){
+    dummy<-as.data.frame(table(mcv_LA2@meta.data[(which(mcv_LA2@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRB, mcv_LA2@meta.data[(which(mcv_LA2@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRB, mcv_LA2@meta.data[(which(mcv_LA2@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRA, mcv_LA2@meta.data[(which(mcv_LA2@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRA, mcv_LA2@meta.data[(which(mcv_LA2@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$dataset))
+  dummy_max<-dummy[which.max(dummy$Freq),]
+  row.names(dummy_max)<-i
+  count<-rbind(count, dummy_max)
+  }
+
+else if (clonal_comp$Identity[i]=='LA3'){
+  dummy<-as.data.frame(table(mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRB, mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRB, mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$v_call_TRA, mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$j_call_TRA, mcv_LA3@meta.data[(which(mcv_LA3@meta.data$paired_tra_trb==clonal_comp$Var1[i])),]$dataset))
+  dummy_max<-dummy[which.max(dummy$Freq),]
+  row.names(dummy_max)<-i
+  count<-rbind(count, dummy_max)
+  
+}
+}
+colnames(count)<-c("Var1","Var2","Var3", "Var4","Identity", "Freq") 
+count$Freq<-clonal_comp$Freq
+# count[['mem.term']]<-clonal_comp$mem.term
+count[['Clone']]<-clonal_comp$Clone
+
+##add VJ information tot he ES dataframes
+#LA_ES_U=left_join(LA_ES_U,count)
+
+
+# count$Freq<-clonal_comp$Freq/sum(clonal_comp$Freq)
+count<-count[order(count$Freq, decreasing = TRUE), ] 
+
+##settign freq to be one per clone as we are not interested in the size of the clones for this analysis.
+count$Freq<-1
+
+##stripping count of unnecessary info
+count$Var1<-gsub("TRBV","",as.character(count$Var1))
+count$Var2<-gsub("TRBJ","",as.character(count$Var2))
+count$Var3<-gsub("TRAV","",as.character(count$Var3))
+count$Var4<-gsub("TRAJ","",as.character(count$Var4))
+
+
+
+##colors to use for the specific VJ chains
+col_M<-c("#7FC97F", "#1B9E77","#BEAED4","#FDC086","cyan","#386CB0", "#F0027F","#BF5B17",  "#666666")
+col_E<-c("#7FC97F", "#1B9E77","#BEAED4", "#FDC086","cyan","#D95F02", "#7570B3", "#666666", "#E7298A")
+col_U<-c("#7FC97F", "#BEAED4", "#FDC086", "#386CB0", "#D95F02","#66A61E", "#666666")
+
+
+
+pdf(file='~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/fig_4/alluvial_LA_U.pdf', width=6.5, height = 3)
+ggplot(data = count[1:20,],
+       aes(axis1 = Var1,axis2=Var2,axis3=Var3,axis4=Var4, y = Freq)) +
+  geom_alluvium(aes(fill = Var1), aes.bind = "flows") +
+  geom_stratum(alpha = 1, color = "darkgrey") +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum)), size=2) +
+ scale_fill_manual(values=col_U)+
+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())+ theme(legend.position = "none")+scale_x_continuous(breaks = 1:4, labels = c("Vb", "Jb","Va", "Ja"), expand=c(0.6, 0)) 
+dev.off()
+```
+
+
+
+```{r}
+##Let us look at AA properties
+library(alakazam)
+
+##To look at aa usage let's get rid of constant aa that are first 2 and last 2 aa
+LA_ES_E<-LA_ES_E %>% mutate(CDR3B_SHORT = str_sub(CDR3B, 3, -3))
+LA_ES_M<-LA_ES_M %>% mutate(CDR3B_SHORT = str_sub(CDR3B, 3, -3))
+LA_ES_U<-LA_ES_U%>% mutate(CDR3B_SHORT = str_sub(CDR3B, 3, -3))
+
+##To look at aa usage let's get rid of constant aa that are first 2 and last 1 aa
+LA_ES_E<-LA_ES_E %>% mutate(CDR3A_SHORT = str_sub(CDR3A, 3, -2))
+LA_ES_M<-LA_ES_M %>% mutate(CDR3A_SHORT = str_sub(CDR3A, 3, -2))
+LA_ES_U<-LA_ES_U%>% mutate(CDR3A_SHORT = str_sub(CDR3A, 3, -2))
+
+##USE alakazam to look at aa properties like:"length", "gravy", "bulk", "aliphatic", "polarity", "charge", "basic","acidic", "aromatic"
+LA_ES_M<-aminoAcidProperties(LA_ES_M, property = c("gravy", "bulk","polarity", "basic"),seq = 'CDR3B_SHORT',label='cdr3B', nt=FALSE, trim = FALSE)
+LA_ES_E<-aminoAcidProperties(LA_ES_E, property = c("gravy", "bulk","polarity", "basic"),seq = 'CDR3B_SHORT',label='cdr3B', nt=FALSE, trim = FALSE)
+LA_ES_U<-aminoAcidProperties(LA_ES_U, property = c("gravy", "bulk","polarity", "basic"),seq = 'CDR3B_SHORT',label='cdr3B', nt=FALSE, trim = FALSE)
+
+##OT1 CDR3A_CDR3B for reference
+OT1_CDR3<-data.frame('CDR3A'='CAASDNYQLIW','CDR3B'='CASSRANYEQYF','CDR3A_SHORT'='ASDNYQLI','CDR3B_SHORT'='SSRANYEQ' )
+OT1_CDR3<-aminoAcidProperties(OT1_CDR3, property = c("gravy", "bulk","polarity", "basic"),seq = 'CDR3A_SHORT',label='cdr3A', nt=FALSE, trim = FALSE)
+OT1_CDR3<-aminoAcidProperties(OT1_CDR3, property = c("gravy", "bulk","polarity", "basic"),seq = 'CDR3B_SHORT',label='cdr3B', nt=FALSE, trim = FALSE)
+
+
+AA=c("A", "C", "F", "G", "H", "I", "K", "L","R","D","E","N","Q","M","P","S","T","V", "W", "Y")
+for (i in 1:length(AA)) {
+LA_ES_E[[paste0('CDR3B_%', AA[i])]]<-(str_count(LA_ES_E$CDR3B_SHORT, AA[i])/(LA_ES_E$CDR3b_length-4))*100
+LA_ES_M[[paste0('CDR3B_%', AA[i])]]<-(str_count(LA_ES_M$CDR3B_SHORT, AA[i])/(LA_ES_M$CDR3b_length-4))*100
+LA_ES_U[[paste0('CDR3B_%', AA[i])]]<-(str_count(LA_ES_U$CDR3B_SHORT, AA[i])/(LA_ES_U$CDR3b_length-4))*100
+}
+
+
+##plotting stacked bar plots to show length usage by the biased clones
+LA_ES_E[['CDR3b_length']]<-nchar(LA_ES_E$CDR3B)
+LA_ES_M[['CDR3b_length']]<-nchar(LA_ES_M$CDR3B)
+LA_ES_U[['CDR3b_length']]<-nchar(LA_ES_U$CDR3B)
+
+length_bias_M<-data.frame(table(nchar(LA_ES_M$CDR3B)))
+length_bias_M[['bias']]<-'M'
+length_bias_E<-data.frame(table(nchar(LA_ES_E$CDR3B)))
+length_bias_E[['bias']]<-'E'
+length_bias_U<-data.frame(table(nchar(LA_ES_U$CDR3B)))
+length_bias_U[['bias']]<-'U'
+length_bias<-rbind(length_bias_M,length_bias_E,length_bias_U)
+length_bias[['Var1']]<-as.character(length_bias$Var1)
+
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/fig_4/cdr3b_length.pdf", width=2.5, height =2.5)
+ggplot(length_bias, aes(x = bias, y=Freq, fill=Var1)) + 
+  geom_col(position = "fill")+ scale_fill_manual(values = c(col_vector[1:3], col_vector[5:9], col_vector[11]))+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())
+dev.off()
+
+
+####cdr3a length######plotting stacked bar plots to show length usage by the biased clones
+LA_ES_E[['CDR3a_length']]<-nchar(LA_ES_E$CDR3A)
+LA_ES_M[['CDR3a_length']]<-nchar(LA_ES_M$CDR3A)
+LA_ES_U[['CDR3a_length']]<-nchar(LA_ES_U$CDR3A)
+
+length_bias_M<-data.frame(table(nchar(LA_ES_M$CDR3A)))
+length_bias_M[['bias']]<-'M'
+length_bias_E<-data.frame(table(nchar(LA_ES_E$CDR3A)))
+length_bias_E[['bias']]<-'E'
+length_bias_U<-data.frame(table(nchar(LA_ES_U$CDR3A)))
+length_bias_U[['bias']]<-'U'
+length_bias<-rbind(length_bias_M,length_bias_E,length_bias_U)
+length_bias[['Var1']]<-as.character(length_bias$Var1)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/fig_4/cdr3a_length.pdf", width=2.5, height =2.5)
+ggplot(length_bias, aes(x = bias, y=Freq, fill=Var1)) + 
+  geom_col(position = "fill")+ scale_fill_manual(values = c(col_vector[1:3], col_vector[5:9], col_vector[11], col_vector[13], col_vector[21]))+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())
+dev.off()
+########################3
+
+##save the updated biased clone files with their ES and amino acid properties.
+write.csv(LA_ES_M, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA_ES_M.csv",sep = ",",col.names = T)
+write.csv(LA_ES_E, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA_ES_E.csv",sep = ",",col.names = T)
+write.csv(LA_ES_U, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA_ES_U.csv",sep = ",",col.names = T)
+```
+
+
+```{r}
+##making logo of aa usage 
+
+##find most common alpha and beta chain for each biased clone
+#table for lengths
+length_a<-as.data.frame(table(nchar(LA_ES_E$CDR3A)))
+length_a[['precentage']]<-length_a$Freq/sum(length_a$Freq)*100
+colnames(length_a)<-c('Lenght', 'Freq', 'perc')
+
+length_b<-as.data.frame(table(nchar(LA_ES_E$CDR3B)))
+length_b[['precentage']]<-length_b$Freq/sum(length_b$Freq)*100
+colnames(length_b)<-c('Lenght', 'Freq', 'perc')
+
+
+library(ggseqlogo)
+##for making the logo filter out CDR3A and CDR3b of the desired length
+LA_ES_M_A<-LA_ES_M %>% filter(nchar(LA_ES_M$CDR3A)==12)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/fig_4/TCR_logo_E_CDR3B_15AA.pdf", width=8, height =4)
+ggseqlogo(as.character(LA_ES_M_A$CDR3A), method = "probability", color_scheme = "chemistry", seq_type='aa' )
+dev.off()
+
+LA_ES_E_A<-LA_ES_E %>% filter(nchar(LA_ES_E$CDR3A)==12)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/fig_4/TCR_logo_U_CDR3B_15AA.pdf", width=8, height =4)
+ggseqlogo(as.character(LA_ES_E_A$CDR3A), method = "probability", color_scheme = "chemistry", seq_type='aa' )
+dev.off()
+
+LA_ES_U_A<-LA_ES_U %>% filter(nchar(LA_ES_U$CDR3A)==12)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/fig_4/TCR_logo_M_CDR3B_15AA.pdf", width=8, height =4)
+ggseqlogo(as.character(LA_ES_U_A$CDR3A), method = "probability", color_scheme = "chemistry", seq_type='aa' )
+dev.off()
+```
+
+```{r}
+##ROUGH WORK
+LA_ES_M_A<-LA_ES_M %>% filter(nchar(LA_ES_M$CDR3B)==12)
+ggseqlogo(as.character(LA_ES_M_A$CDR3B), method = "probability", color_scheme = "chemistry", seq_type='aa' )
+
+
+LA_ES_E_A<-LA_ES_E %>% filter(nchar(LA_ES_E$CDR3B)==12)
+ggseqlogo(as.character(LA_ES_E_A$CDR3B), method = "probability", color_scheme = "chemistry", seq_type='aa' )
+
+
+LA_ES_U_A<-LA_ES_U %>% filter(nchar(LA_ES_U$CDR3B)==12)
+ggseqlogo(as.character(LA_ES_U_A$CDR3B), method = "probability", color_scheme = "chemistry", seq_type='aa' )
+```
+
+
+```{r}
+##making feature plots for the biased clones in figure 6
+##for LA2
+x=rownames(mcv_LA2@meta.data)[which(mcv_LA2@meta.data$paired_tra_trb=="CALGETGSGGKLTL_CASSPRGPEQYF")]
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 5_6/LA2_mem_CALGETGSGGKLTL_CASSPRGPEQYF.pdf", width=6, height = 3.5)
+DimPlot(mcv, reduction = 'umap', cells.highlight= x, label=FALSE, cols.highlight = "blue")+ NoAxes()
+dev.off()
+
+x=rownames(mcv_LA2@meta.data)[which(mcv_LA2@meta.data$paired_tra_trb=="CAMDTGKLTF_CAWRTYNNQAPLF")]
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 5_6/LA2_eff_CAMDTGKLTF_CAWRTYNNQAPLF.pdf", width=6, height = 3.5)
+DimPlot(mcv, reduction = 'umap', cells.highlight= x, label=FALSE, cols.highlight = "red")+ NoAxes()
+dev.off()
+
+x=rownames(mcv_LA2@meta.data)[which(mcv_LA2@meta.data$paired_tra_trb=="CALGGTGGYKVVF_CASAPRNSDYTF")]
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 5_6/LA2_unbias_CALGGTGGYKVVF_CASAPRNSDYTF.pdf", width=6, height = 3.5)
+DimPlot(mcv, reduction = 'umap', cells.highlight= x, label=FALSE, cols.highlight = "purple")+ NoAxes()
+dev.off()
+
+
+##for LA3 
+x=rownames(mcv_LA3@meta.data)[which(mcv_LA3@meta.data$paired_tra_trb=="CAVSEDTGYQNFYF_CASSDRLGRDEQYF")]
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 5_6/LA3_mem_CAVSEDTGYQNFYF_CASSDRLGRDEQYF.pdf", width=6, height = 3.5)
+DimPlot(mcv, reduction = 'umap', cells.highlight= x, label=FALSE, cols.highlight = "blue")+ NoAxes()
+dev.off()
+
+x=rownames(mcv_LA3@meta.data)[which(mcv_LA3@meta.data$paired_tra_trb=="CALGEISSGQKLVF_CAWSPGLGNYAEQFF")]
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 5_6/LA3_eff_CALGEISSGQKLVF_CAWSPGLGNYAEQFF.pdf", width=6, height = 3.5)
+DimPlot(mcv, reduction = 'umap', cells.highlight= x, label=FALSE, cols.highlight = "red")+ NoAxes()
+dev.off()
+
+x=rownames(mcv_LA3@meta.data)[which(mcv_LA3@meta.data$paired_tra_trb=="CALNTGGLSGKLTF_CASSRQGDTGQLYF")]
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/fig 5_6/LA3_unbias_CALNTGGLSGKLTF_CASSRQGDTGQLYF.pdf", width=6, height = 3.5)
+DimPlot(mcv, reduction = 'umap', cells.highlight= x, label=FALSE, cols.highlight = "purple")+ NoAxes()
+dev.off()
+```
+
+
+```{r}
+##read all the enrichment scores
+LA_ES_E<-read.csv2('~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA_ES_E.csv', sep = ',')
+
+LA_ES_M<-read.csv2('~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA_ES_M.csv', sep = ',')
+
+LA_ES_U<-read.csv2('~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA_ES_U.csv', sep = ',')
+
+LA_ES_E[['bias']]<-'Effector'
+LA_ES_M[['bias']]<-'Memory'
+LA_ES_U[['bias']]<-'unbiased'
+
+LA_ES_T<-rbind(LA_ES_E,LA_ES_M,LA_ES_U )
+
+write.csv(LA_ES_T, file = "~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/LA_ES_T.csv",sep = ",",col.names = T, row.names=T)
+```
+
+```{r}
+##rough work
+Vb_M<-data.frame(table(mcv_LA1_INT$v_call_TRB))
+Vb_M[['sample']]<-'LA1'
+Vb_E<-data.frame(table(mcv_LA2_INT$v_call_TRB))
+Vb_E[['sample']]<-'LA2'
+Vb_U<-data.frame(table(mcv_LA3_INT$v_call_TRB))
+Vb_U[['sample']]<-'LA3'
+Vb<-rbind(Vb_M,Vb_E,Vb_U)
+Vb[['Var1']]<-as.character(Vb$Var1)
+
+
+ggplot(Vb, aes(x = sample, y=Freq, fill=Var1)) + 
+  geom_col(position = "fill")+ scale_fill_manual(values = c(col_vector))+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())
+
+```
+
+
+```{r}
+##Vb usage
+Vb<-data.frame(table(LA_ES_T$Vb, LA_ES_T$Bias))
+Vb_LA1[['sample']]<-'LA1'
+Vb_LA2<-data.frame(table(mcv_LA2_INT$v_call_TRB))
+Vb_LA2[['sample']]<-'LA2'
+Vb_LA3<-data.frame(table(mcv_LA3_INT$v_call_TRB))
+Vb_LA3[['sample']]<-'LA3'
+Vb<-rbind(Vb_M,Vb_E,Vb_U)
+Vb[['Var1']]<-as.character(Vb$Var1)
+
+
+#Vb usage among expanded clones
+pdf(file='~/Huang Lab Dropbox/Leena Abdullah/Leena and Yina/Thesis/thesis presentation/vb_usage_in_the _biased_clones.pdf', width=6, height = 7.5)
+ggplot(Vb, aes(x = Var2, y=Freq, fill=Var1)) + 
+  geom_col(position = "fill")+ scale_fill_manual(values = c(col_vector))+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())
+dev.off()
+```
+
+```{r}
+##find DEGs between EE cells from the memory biased and effector biased clones
+##EE 3, IE 2, MP 0, TE 1.
+##first subset each dataset to only have cells from cluster of interest
+mcv_LA1_EE=subset(x=mcv_LA1, subset = seurat_clusters == "3")
+mcv_LA2_EE=subset(x=mcv_LA2, subset = seurat_clusters == "3")
+mcv_LA3_EE=subset(x=mcv_LA3, subset = seurat_clusters == "3")
+
+##TEST
+View(table(mcv_LA1_EE$dataset, mcv_LA1_EE$seurat_clusters))
+View(table(mcv_LA2_EE$dataset, mcv_LA2_EE$seurat_clusters))
+View(table(mcv_LA3_EE$dataset, mcv_LA3_EE$seurat_clusters))
+####
+
+list_clones=list()
+list_clones_cellID=list()
+
+for (i in 1:length(LA_ES_E$Clone)) {
+  if (LA_ES_E$Identity[i]=='LA1'){
+  list_clones[[i]]=which(mcv_LA1_EE$paired_tra_trb == LA_ES_E$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA1_EE)[list_clones[[i]]]
+  
+  }
+  else if (LA_ES_E$Identity[i]=='LA2'){
+  list_clones[[i]]=which(mcv_LA2_EE$paired_tra_trb == LA_ES_E$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA2_EE)[list_clones[[i]]]
+  
+  }
+  else if(LA_ES_E$Identity[i]=='LA3'){
+    list_clones[[i]]=which(mcv_LA3_EE$paired_tra_trb == LA_ES_E$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3_EE)[list_clones[[i]]]
+ 
+  }
+}
+unlist_clones_cellID_E=unlist(list_clones_cellID)
+
+list_clones=list()
+list_clones_cellID=list()
+
+for (i in 1:length(LA_ES_M$Clone)) {
+  if (LA_ES_M$Identity[i]=='LA1'){
+  list_clones[[i]]=which(mcv_LA1_EE$paired_tra_trb == LA_ES_M$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA1_EE)[list_clones[[i]]]
+  
+  }
+  else if (LA_ES_M$Identity[i]=='LA2'){
+  list_clones[[i]]=which(mcv_LA2_EE$paired_tra_trb == LA_ES_M$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA2_EE)[list_clones[[i]]]
+  
+  }
+  else if(LA_ES_M$Identity[i]=='LA3'){
+    list_clones[[i]]=which(mcv_LA3_EE$paired_tra_trb == LA_ES_M$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3_EE)[list_clones[[i]]]
+ 
+  }
+}
+unlist_clones_cellID_M=unlist(list_clones_cellID)
+
+##FIND degs
+DEG_EE_E_vs_M<-FindMarkers(mcv, ident.1 =unlist_clones_cellID_E, ident.2=unlist_clones_cellID_M, only.pos = FALSE,logfc.threshold = 0, min.pct = 0.1 )
+
+
+
+##EE GENES TO DISPLAY c('Cd27', 'Gpr183', 'Cxcr3', 'Ltb','Trbc2','Trbc1','Cd7','Lat','Cd226' , 'Ly6a', 'Ly6e', 'Cd28','Icos','Slfn1','Cd8b1', 'Ms4a6b','Klrg1','Cx3cr1','Tcf7','Gzma','Gzmb','Prf1','Nkg7', 'Lgals1', 'Zeb2', 'Klkr1', 'Klrd1', 'Klre1', 'Klra5' , 'Klra7')
+# rownames(DEG_EE_E_vs_M)<-DEG_EE_E_vs_M$X
+
+##IE GENES TO DISPLAY
+# c('Ltb','Trbc2','Trbc1','Cd226' , 'Ly6a', 'Ly6e','Cd8b1', 'Ms4a6b','Klrg1','Tcf7','Gzma','Gzmb', 'Gzmk', 'Klkr1', 'Klre1', 'Il7r')
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/EE_Eff_vs_Mem_DEGs_version_2.pdf", width=20, height = 10)
+EnhancedVolcano(DEG_EE_E_vs_M,selectLab = c('Cd27', 'Gpr183', 'Cxcr3', 'Ltb','Cd7','Lat','Cd226' , 'Ly6a', 'Ly6e', 'Cd28','Icos','Slfn1','Cd8b1', 'Ms4a6b','Klrg1','Cx3cr1','Tcf7','Gzma','Gzmb','Prf1','Nkg7', 'Lgals1', 'Zeb2', 'Klkr1', 'Klrd1', 'Klre1', 'Klra5' , 'Klra7'),
+    lab = rownames(DEG_EE_E_vs_M), drawConnectors = TRUE,  FCcutoff = 0.25, pointSize = 5.0,
+   # labCol = 'black',
+    # labFace = 'bold',
+    boxedLabels = TRUE,
+     # legendPosition = 'right',
+    # legendLabSize = 14,
+    # legendIconSize = 4.0,
+    widthConnectors = 1.0,
+    # colConnectors = 'black',
+    x = 'avg_log2FC',
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    y = 'p_val', labSiz=9, xlim = c(-1,2.5),  ylim = c(0,40))
+dev.off()
+
+
+##filter DEGs to keep the ones with adj_pval<0.05 and convert them into a gene module for addign mdeule scores to cells.
+## 64 sig DEGs forEE with the following to conditions
+## 37 sig DEGs forIE with the following to conditions
+## 112 sig DEGs forMP with the following to conditions
+## 73 sig DEGs forTE with the following to conditions
+
+top_eff <- DEG_EE_E_vs_M %>% filter(DEG_EE_E_vs_M$avg_log2FC>=0.25 & DEG_EE_E_vs_M$p_val_adj<0.05)
+top_mem <- DEG_EE_E_vs_M %>% filter(DEG_EE_E_vs_M$avg_log2FC<=-0.25, DEG_EE_E_vs_M$p_val_adj<0.05)
+
+cd_features <- list(rownames(top_mem))
+mcv <- AddModuleScore(
+  object = mcv,
+  features = cd_features,
+  ctrl = 5,
+  name = 'EE_Mhigh_Features'
+)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/EE_MEM_biased_modeulescore_test.pdf", width=6, height = 3.5)
+FeaturePlot(mcv, features='EE_Mhigh_Features1')+ NoAxes()+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
+dev.off()
+```
+
+```{r}
+###trying to combine the features from the memory biased and effetor biased clones and comapre them to those of unbiased clones for early effetcor cells
+
+unlist_clones_cellID_M_sub<-sample(x = unlist_clones_cellID_M, size  = 167)
+unlist_clones_cellID_E_M<-c(unlist_clones_cellID_E,unlist_clones_cellID_M_sub)
+
+
+##next lest us find cells in the unbiased category in EE
+
+list_clones=list()
+list_clones_cellID=list()
+
+for (i in 1:length(LA_ES_U$Clone)) {
+  if (LA_ES_U$Identity[i]=='LA1'){
+  list_clones[[i]]=which(mcv_LA1_EE$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA1_EE)[list_clones[[i]]]
+  
+  }
+  else if (LA_ES_U$Identity[i]=='LA2'){
+  list_clones[[i]]=which(mcv_LA2_EE$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA2_EE)[list_clones[[i]]]
+  
+  }
+  else if(LA_ES_U$Identity[i]=='LA3'){
+    list_clones[[i]]=which(mcv_LA3_EE$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3_EE)[list_clones[[i]]]
+ 
+  }
+}
+unlist_clones_cellID_U=unlist(list_clones_cellID)
+
+DEG_EE_E_M_vs_U<-FindMarkers(mcv, ident.1 =unlist_clones_cellID_E_M, ident.2=unlist_clones_cellID_U, only.pos = FALSE,logfc.threshold = 0, min.pct = 0.1 )
+
+#DEG_EE_E_M_vs_U_sub<-DEG_EE_E_M_vs_U %>% filter(DEG_EE_E_M_vs_U$p_val_adj<0.05)
+
+pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/EE_Eff_Mem_vs_Unbiased_DEGs.pdf", width=10, height = 10)
+EnhancedVolcano(DEG_EE_E_M_vs_U,
+    lab = rownames(DEG_EE_E_M_vs_U), drawConnectors = TRUE,  FCcutoff = 0.25, pointSize = 5.0,
+   # labCol = 'black',
+    # labFace = 'bold',
+    boxedLabels = TRUE,
+     # legendPosition = 'right',
+    # legendLabSize = 14,
+    # legendIconSize = 4.0,
+    widthConnectors = 1.0,
+    # colConnectors = 'black',
+    x = 'avg_log2FC',
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    y = 'p_val', labSiz=9,
+pCutoff = 2.5e-06)
+dev.off()
+```
+
+```{r}
+##make stacked barplot to show bias clone representation across mice
+LA_ES_E[['Bias']]<-'Eff'
+LA_ES_M[['Bias']]<-'Mem'
+LA_ES_U[['Bias']]<-'Un'
+LA_ES_T<-rbind(LA_ES_E, LA_ES_M, LA_ES_U)
+
+bias_table<-as.data.frame(table(LA_ES_T$Identity, LA_ES_T$Bias))
+pdf(file='~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/bias _across_samples.pdf',width=2.5, height =2.5)
+ggplot(bias_table, aes(x = Var1, y=Freq, fill=Var2)) + 
+  geom_col(position = "fill")+ scale_fill_manual(values = c('red', 'blue', 'purple'))+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())
+
+dev.off()
+```
+
+```{r}
+mcv_LA1_EE=subset(x=mcv_LA1, subset = seurat_clusters == "0")
+mcv_LA2_EE=subset(x=mcv_LA2, subset = seurat_clusters == "0")
+mcv_LA3_EE=subset(x=mcv_LA3, subset = seurat_clusters == "0")
+
+##TEST
+View(table(mcv_LA1_EE$dataset, mcv_LA1_EE$seurat_clusters))
+View(table(mcv_LA2_EE$dataset, mcv_LA2_EE$seurat_clusters))
+View(table(mcv_LA3_EE$dataset, mcv_LA3_EE$seurat_clusters))
+####
+
+list_clones=list()
+list_clones_cellID=list()
+
+for (i in 1:length(LA_ES_E$Clone)) {
+  if (LA_ES_E$Identity[i]=='LA1'){
+  list_clones[[i]]=which(mcv_LA1_EE$paired_tra_trb == LA_ES_E$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA1_EE)[list_clones[[i]]]
+  
+  }
+  else if (LA_ES_E$Identity[i]=='LA2'){
+  list_clones[[i]]=which(mcv_LA2_EE$paired_tra_trb == LA_ES_E$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA2_EE)[list_clones[[i]]]
+  
+  }
+  else if(LA_ES_E$Identity[i]=='LA3'){
+    list_clones[[i]]=which(mcv_LA3_EE$paired_tra_trb == LA_ES_E$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3_EE)[list_clones[[i]]]
+ 
+  }
+}
+unlist_clones_cellID_E=unlist(list_clones_cellID)
+
+list_clones=list()
+list_clones_cellID=list()
+
+for (i in 1:length(LA_ES_M$Clone)) {
+  if (LA_ES_M$Identity[i]=='LA1'){
+  list_clones[[i]]=which(mcv_LA1_EE$paired_tra_trb == LA_ES_M$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA1_EE)[list_clones[[i]]]
+  
+  }
+  else if (LA_ES_M$Identity[i]=='LA2'){
+  list_clones[[i]]=which(mcv_LA2_EE$paired_tra_trb == LA_ES_M$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA2_EE)[list_clones[[i]]]
+  
+  }
+  else if(LA_ES_M$Identity[i]=='LA3'){
+    list_clones[[i]]=which(mcv_LA3_EE$paired_tra_trb == LA_ES_M$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3_EE)[list_clones[[i]]]
+ 
+  }
+}
+unlist_clones_cellID_M=unlist(list_clones_cellID)
+
+list_clones=list()
+list_clones_cellID=list()
+
+for (i in 1:length(LA_ES_U$Clone)) {
+  if (LA_ES_U$Identity[i]=='LA1'){
+  list_clones[[i]]=which(mcv_LA1_EE$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA1_EE)[list_clones[[i]]]
+  
+  }
+  else if (LA_ES_U$Identity[i]=='LA2'){
+  list_clones[[i]]=which(mcv_LA2_EE$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA2_EE)[list_clones[[i]]]
+  
+  }
+  else if(LA_ES_U$Identity[i]=='LA3'){
+    list_clones[[i]]=which(mcv_LA3_EE$paired_tra_trb == LA_ES_U$Clone[i])
+  list_clones_cellID[[i]]=Cells(mcv_LA3_EE)[list_clones[[i]]]
+ 
+  }
+}
+unlist_clones_cellID_U=unlist(list_clones_cellID)
+
+
+
+##what is the proportion of the biases in each cluster
+bias<-c('Eff', 'Eff', 'Mem','Mem', 'Un','Un')
+cluster<-c('MP', 'TE','MP', 'TE','MP', 'TE')
+Freq<-c(1343, 2101, 2566, 272, 2307, 1189)
+te_mp_bias<-data.frame(bias, cluster,Freq)
+
+pdf(file='~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/bias _across_cluster.pdf',width=2.5, height =2.5)
+ggplot(te_mp_bias, aes(x = cluster, y=Freq, fill=bias)) + 
+  geom_col(position = "fill")+ scale_fill_manual(values = c('red', 'blue', 'purple'))+  theme_bw()+
+
+  theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank())
+
+dev.off()
+
+```
+
