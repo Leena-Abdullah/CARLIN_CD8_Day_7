@@ -52,13 +52,13 @@ legend("topright", c("NA", "CDR3a only", "CDR3b only", "CDR3a & CDR3b"), fill = 
  dev.off() 
  
  
-##clonal composition of top 20 clones. Supplementary figure 3
+##clonal composition of top 20 clones. Supplementary figure 2
 clonal_comp <- as.data.frame(table(mcv_LA2@meta.data$paired_tra_trb))
 clonal_comp<-clonal_comp %>% filter(clonal_comp$Var1!='NA') 
 clonal_comp<-clonal_comp[order(clonal_comp$Freq, decreasing = TRUE), ]  
 clonal_comp<-clonal_comp[1:20,]
 
-##make piechart for top clones in each mouse.  Supplementary figure 3
+##make piechart for top clones in each mouse.  Supplementary figure 2
 qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
 col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
 piepercent<- round(100*clonal_comp$Freq/sum(clonal_comp$Freq), 1)
@@ -274,7 +274,7 @@ LA3_ES <- LA3_ES %>% separate(X, c('CDR3A', 'CDR3B'))
 LA2_ES_M=LA2_ES %>% filter(LA2_ES$X0>1 & LA2_ES$X1<1 & LA2_ES$mem.term>=2)
 LA2_ES_E=LA2_ES %>% filter(LA2_ES$X0<1 & LA2_ES$X1>1 & LA2_ES$mem.term<=0.5)
 
-##STORE THE REMAINING CLONES in the unbiased category AND SEE THEIR DISTRIBUTION. Replace LA2 with LA2/LA2
+##STORE THE REMAINING CLONES in the unbiased category AND SEE THEIR DISTRIBUTION. Replace LA2 with LA1/LA3 as needed.
 LA2_ES_U <- LA2_ES[!(LA2_ES$Clone %in% LA2_ES_M$Clone),]
 LA2_ES_U <- LA2_ES_U[!(LA2_ES_U$Clone %in% LA2_ES_E$Clone),]
 
@@ -745,8 +745,7 @@ DEG_EE_E_vs_M<-FindMarkers(mcv, ident.1 =unlist_clones_cellID_E, ident.2=unlist_
 ##EE GENES TO DISPLAY c('Cd27', 'Gpr183', 'Cxcr3', 'Ltb','Trbc2','Trbc1','Cd7','Lat','Cd226' , 'Ly6a', 'Ly6e', 'Cd28','Icos','Slfn1','Cd8b1', 'Ms4a6b','Klrg1','Cx3cr1','Tcf7','Gzma','Gzmb','Prf1','Nkg7', 'Lgals1', 'Zeb2', 'Klkr1', 'Klrd1', 'Klre1', 'Klra5' , 'Klra7')
 # rownames(DEG_EE_E_vs_M)<-DEG_EE_E_vs_M$X
 
-##IE GENES TO DISPLAY
-# c('Ltb','Trbc2','Trbc1','Cd226' , 'Ly6a', 'Ly6e','Cd8b1', 'Ms4a6b','Klrg1','Tcf7','Gzma','Gzmb', 'Gzmk', 'Klkr1', 'Klre1', 'Il7r')
+
 pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/EE_Eff_vs_Mem_DEGs_version_2.pdf", width=20, height = 10)
 EnhancedVolcano(DEG_EE_E_vs_M,selectLab = c('Cd27', 'Gpr183', 'Cxcr3', 'Ltb','Cd7','Lat','Cd226' , 'Ly6a', 'Ly6e', 'Cd28','Icos','Slfn1','Cd8b1', 'Ms4a6b','Klrg1','Cx3cr1','Tcf7','Gzma','Gzmb','Prf1','Nkg7', 'Lgals1', 'Zeb2', 'Klkr1', 'Klrd1', 'Klre1', 'Klra5' , 'Klra7'),
     lab = rownames(DEG_EE_E_vs_M), drawConnectors = TRUE,  FCcutoff = 0.25, pointSize = 5.0,
@@ -765,11 +764,9 @@ EnhancedVolcano(DEG_EE_E_vs_M,selectLab = c('Cd27', 'Gpr183', 'Cxcr3', 'Ltb','Cd
 dev.off()
 
 
-##filter DEGs to keep the ones with adj_pval<0.05 and convert them into a gene module for addign mdeule scores to cells.
-## 64 sig DEGs forEE with the following to conditions
-## 37 sig DEGs forIE with the following to conditions
-## 112 sig DEGs forMP with the following to conditions
-## 73 sig DEGs forTE with the following to conditions
+##filter DEGs to keep the ones with adj_pval<0.05 and convert them into a gene module for addign module scores to cells.
+## 64 sig DEGs forEE with the following conditions
+
 
 top_eff <- DEG_EE_E_vs_M %>% filter(DEG_EE_E_vs_M$avg_log2FC>=0.25 & DEG_EE_E_vs_M$p_val_adj<0.05)
 top_mem <- DEG_EE_E_vs_M %>% filter(DEG_EE_E_vs_M$avg_log2FC<=-0.25, DEG_EE_E_vs_M$p_val_adj<0.05)
@@ -784,60 +781,6 @@ mcv <- AddModuleScore(
 
 pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/EE_MEM_biased_modeulescore_test.pdf", width=6, height = 3.5)
 FeaturePlot(mcv, features='EE_Mhigh_Features1')+ NoAxes()+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))
-dev.off()
-```
-
-```{r}
-###trying to combine the features from the memory biased and effetor biased clones and comapre them to those of unbiased clones for early effetcor cells
-
-unlist_clones_cellID_M_sub<-sample(x = unlist_clones_cellID_M, size  = 167)
-unlist_clones_cellID_E_M<-c(unlist_clones_cellID_E,unlist_clones_cellID_M_sub)
-
-
-##next lest us find cells in the unbiased category in EE
-
-list_clones=list()
-list_clones_cellID=list()
-
-for (i in 1:length(LA_ES_U$Clone)) {
-  if (LA_ES_U$Identity[i]=='LA1'){
-  list_clones[[i]]=which(mcv_LA1_EE$paired_tra_trb == LA_ES_U$Clone[i])
-  list_clones_cellID[[i]]=Cells(mcv_LA1_EE)[list_clones[[i]]]
-  
-  }
-  else if (LA_ES_U$Identity[i]=='LA2'){
-  list_clones[[i]]=which(mcv_LA2_EE$paired_tra_trb == LA_ES_U$Clone[i])
-  list_clones_cellID[[i]]=Cells(mcv_LA2_EE)[list_clones[[i]]]
-  
-  }
-  else if(LA_ES_U$Identity[i]=='LA3'){
-    list_clones[[i]]=which(mcv_LA3_EE$paired_tra_trb == LA_ES_U$Clone[i])
-  list_clones_cellID[[i]]=Cells(mcv_LA3_EE)[list_clones[[i]]]
- 
-  }
-}
-unlist_clones_cellID_U=unlist(list_clones_cellID)
-
-DEG_EE_E_M_vs_U<-FindMarkers(mcv, ident.1 =unlist_clones_cellID_E_M, ident.2=unlist_clones_cellID_U, only.pos = FALSE,logfc.threshold = 0, min.pct = 0.1 )
-
-#DEG_EE_E_M_vs_U_sub<-DEG_EE_E_M_vs_U %>% filter(DEG_EE_E_M_vs_U$p_val_adj<0.05)
-
-pdf(file="~/Dropbox (Huang Lab)/Leena and Yina/CARLIN Lineage Tracing/carlin experiments/06082022 vsv-ova infection/stuff for the paper/TCR_analysis_fig_3/EE_Eff_Mem_vs_Unbiased_DEGs.pdf", width=10, height = 10)
-EnhancedVolcano(DEG_EE_E_M_vs_U,
-    lab = rownames(DEG_EE_E_M_vs_U), drawConnectors = TRUE,  FCcutoff = 0.25, pointSize = 5.0,
-   # labCol = 'black',
-    # labFace = 'bold',
-    boxedLabels = TRUE,
-     # legendPosition = 'right',
-    # legendLabSize = 14,
-    # legendIconSize = 4.0,
-    widthConnectors = 1.0,
-    # colConnectors = 'black',
-    x = 'avg_log2FC',
-    gridlines.major = FALSE,
-    gridlines.minor = FALSE,
-    y = 'p_val', labSiz=9,
-pCutoff = 2.5e-06)
 dev.off()
 ```
 
